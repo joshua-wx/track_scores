@@ -4,9 +4,27 @@ import xml.etree.ElementTree as ET
 
 # load aint data
 def load_aint(tracks_ffn):
+    """
+    Function to load AINT track data from a CSV file.
+
+    Parameters
+    ----------
+    tracks_ffn : str
+        Path to the AINT track CSV file.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame containing the AINT track data with columns:
+        track_id, timestamp, lat, lon, area, initial_track_id, filter
+    """
     df = pd.read_csv(tracks_ffn, parse_dates=['time'])
     #rename
     df = df.rename(columns={'time': 'timestamp', 'uid': 'track_id'})
+    #copy track_id to initial_track_id for later reference
+    df['initial_track_id'] = df['track_id']
+    #add filter column
+    df['filter'] = None
     return df
 
 def load_titan_ascii(ascii_ffn: str) -> pd.DataFrame:
@@ -21,8 +39,8 @@ def load_titan_ascii(ascii_ffn: str) -> pd.DataFrame:
     Returns
     -------
     pd.DataFrame
-        DataFrame with columns:
-        track_id, datetime, latitude, longitude, area
+        DataFrame containing the TITAN track data with columns:
+        track_id, timestamp, lat, lon, area, initial_track_id, filter
     """
     with open(ascii_ffn, "r") as f:
         all_lines = f.readlines()
@@ -62,10 +80,28 @@ def load_titan_ascii(ascii_ffn: str) -> pd.DataFrame:
         "precip_area(km2)": "area",
     })[["track_id", "timestamp", "lat", "lon", "area"]]
 
+    #add filter column
+    df['filter'] = None
+    #copy track_id to initial_track_id for later reference
+    df['initial_track_id'] = df['track_id']
     return df
 
 # load titan data
 def load_titan_xml(xml_ffn_list):
+    """
+    Function to load TITAN track data from a list of XML files.
+
+    Parameters
+    ----------
+    xml_ffn_list : list of str
+        List of paths to the TITAN track XML files.
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame containing the TITAN track data with columns:
+        track_id, timestamp, lat, lon, area, initial_track_id, filter
+    """
+
     #init schema
     NS = {"w": "https://reg.bom.gov.au/schema/WxML"}
     rows = []
@@ -104,9 +140,12 @@ def load_titan_xml(xml_ffn_list):
 
     df = pd.DataFrame(rows)
 
-    # Optional: parse time column as datetime
+    #parse time column as datetime
     df["timestamp"] = pd.to_datetime(df["timestamp"])
-
+    #copy track_id to initial_track_id for later reference
+    df['initial_track_id'] = df['track_id']
+    #add filter column
+    df['filter'] = None
     return df
 
 
