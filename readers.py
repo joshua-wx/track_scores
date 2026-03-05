@@ -1,3 +1,4 @@
+import math
 import pandas as pd
 from io import StringIO
 import xml.etree.ElementTree as ET
@@ -148,6 +149,124 @@ def load_titan_xml(xml_ffn_list):
     df['filter'] = None
     return df
 
+
+def read_ww_hailtracker(track_ffn) -> str:
+    """
+    Assign a unique integer track_id to each thunderstorm track, splitting
+    at any point where multiple children share the same parent so that each
+    track has at most one cell per timestep. The child geographically closest
+    to the parent inherits the parent's track.
+
+    Parameters
+    ----------
+    track_ffn : str
+        ascii file with track data. Must contain columns 'storm_index' and 'storm_index_previous'.
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy of input dataframe with a new 'track_id' column inserted as the
+        first column. Rows are sorted by track_id, then timestamp, then
+        storm_index.
+    """
+    def _haversine_km(lon1, lat1, lon2, lat2):
+        """Great-circle distance in km between two lon/lat points."""
+        R = 6371.0
+        dlon = math.radians(lon2 - lon1)
+        dlat = math.radians(lat2 - lat1)
+        a = (math.sin(dlat / 2) ** 2
+            + math.cos(math.radians(lat1))
+            * math.cos(math.radians(lat2))
+            * math.sin(dlon / 2) ** 2)
+        return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    df = pd.read_csv(track_ffn)
+    df = df.sort_values(["timestamp", "storm_index"]).reset_index(drop=True)
+
+    # Build lookups for cell locations
+    loc = dict(zip(
+        df["storm_index"],
+        zip(df["centre_lon"], df["centre_lat"])
+    ))
+
+    # Track ID assigned to each storm_index
+    track_for_storm = {}
+    next_track_id = 1
+
+    # Process cells in chronological order
+    for timestamp, group in df.groupby("timestamp", sort=True):
+        children_of = {}  # parent_storm_index -> list of child storm_indices
+        roots = []        # cells with no parent (start new tracks)
+
+        for _, row in group.iterrows():
+            si = row["storm_index"]
+            si_prev = row["storm_index_previous"]
+
+            if pd.isna(si_prev):
+                roots.append(si)
+            else:
+                parent = int(si_prev)
+                children_of.setdefault(parent, []).append(si)
+
+        # Cells with no parent always start a new track
+        for si in roots:
+            track_for_storm[si] = next_track_id
+            next_track_id += 1
+
+        # For each parent, assign tracks to its children
+        for parent, children in children_of.items():
+            # Sort children by distance to parent (closest first)
+            parent_lon, parent_lat = loc[parent]
+            children.sort(key=lambda si: _haversine_km(
+                parent_lon, parent_lat, loc[si][0], loc[si][1]
+            ))
+
+            if parent in track_for_storm:
+                parent_track = track_for_storm[parent]
+            else:
+                # Parent not seen (edge case) - treat first child as new track
+                parent_track = next_track_id
+                next_track_id += 1
+
+            # Closest child continues the parent's track
+            track_for_storm[children[0]] = parent_track
+
+            # Remaining children each start a new track
+            for si in children[1:]:
+                track_for_storm[si] = next_track_id
+                next_track_id += 1
+
+    # Map track IDs onto the dataframe
+    df["track_id"] = df["storm_index"].map(track_for_storm)
+
+    # Renumber track_ids sequentially (1, 2, 3, ...) in order of first appearance
+    first_appearance = df.sort_values(["timestamp", "storm_index"]).drop_duplicates("track_id")
+    tid_remap = {old: new for new, old in enumerate(first_appearance["track_id"], start=1)}
+    df["track_id"] = df["track_id"].map(tid_remap)
+
+    # Reorder columns: track_id first
+    cols = ["track_id"] + [c for c in df.columns if c != "track_id"]
+    df = df[cols]
+
+    # Sort for readability
+    sort_cols = ["track_id"]
+    if "timestamp" in df.columns:
+        sort_cols.append("timestamp")
+    sort_cols.append("storm_index")
+    df = df.sort_values(sort_cols).reset_index(drop=True)
+    #parse time column as datetime
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+
+    # Select and rename columns
+    df = df.rename(columns={
+        "centre_lat": "lat",
+        "centre_lon": "lon",
+    })[["track_id", "timestamp", "lat", "lon"]]
+
+    #insert dummy area column
+    df['area'] = 1
+    
+    return df
 
 
 
