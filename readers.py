@@ -28,6 +28,32 @@ def load_aint(tracks_ffn):
     df['filter'] = None
     return df
 
+def load_aint_national(tracks_ffn: str) -> pd.DataFrame:
+    """
+    Load a merged AINT national tracks CSV file.
+
+    The file contains '#'-prefixed metadata/comment lines followed by a
+    standard CSV with columns including uid, time, lat, lon, area_km2.
+
+    Parameters
+    ----------
+    tracks_ffn : str
+        Path to the merged AINT national tracks CSV file
+        (e.g. ``310_20251101_merged.tracks.csv``).
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns: track_id, timestamp, lat, lon, area,
+        initial_track_id, filter.
+    """
+    df = pd.read_csv(tracks_ffn, delimiter=',', comment='#', parse_dates=['time'])
+    df = df.rename(columns={'uid': 'track_id', 'time': 'timestamp', 'area_km2': 'area'})
+    df['initial_track_id'] = df['track_id']
+    df['filter'] = None
+    return df[['track_id', 'timestamp', 'lat', 'lon', 'area', 'initial_track_id', 'filter']]
+
+
 def load_titan_ascii(ascii_ffn: str) -> pd.DataFrame:
     """
     Read a storms_to_tifs ASCII file into a pandas DataFrame.
